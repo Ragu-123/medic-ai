@@ -167,52 +167,51 @@ class LearnableQueries(layers.Layer):
 class ContentAdaptiveQueries(layers.Layer):
     """
     Physics-Adapted Query Initialization with Vector Gating.
-    
-    Instead of random initialization, this layer selects queries from the most 
-    prominent features in the encoder output (simulating 'mass' or 'ink' detection).
-    It includes a 'Vector Gate' to learn which of these selected anchors are 
-    truly relevant vs. noise.
+    JAX-Compatible Version.
     """
     def __init__(self, num_queries, embed_dim, **kwargs):
         super().__init__(**kwargs)
         self.num_queries = num_queries
         self.embed_dim = embed_dim
-        # 1. Objectness Head: Scores pixels based on "physics" (e.g. intensity/texture)
+        
+        # 1. Objectness Head
         self.objectness_head = layers.Dense(1, name="physics_score_head")
         
-        # 2. Vector Gate: Filters the selected queries
+        # 2. Vector Gate
         self.vector_gate = layers.Dense(embed_dim, activation="sigmoid", name="vector_gate")
+        
+        # 3. FIX FOR JAX: Explicit Seed Generator
+        # JAX requires random ops (like noise) to have a stateful seed generator attached to the layer.
+        self.seed_generator = keras.random.SeedGenerator(1337)
 
     def call(self, inputs, training=None):
         # inputs: [Batch, Num_Tokens, Embed_Dim] (Encoder Output)
         
         # --- Step 1: Physics-Based Selection ---
-        # Score every token to find potential scroll sheets
         scores = self.objectness_head(inputs) # [B, N, 1]
         scores = ops.squeeze(scores, -1)      # [B, N]
         
-        # Add noise during training to encourage robustness (exploration)
+        # Add noise during training to encourage robustness
         if training:
-            noise = keras.random.normal(shape=ops.shape(scores), stddev=0.1)
+            # FIX: Use the seed generator here
+            noise = keras.random.normal(
+                shape=ops.shape(scores), 
+                stddev=0.1,
+                seed=self.seed_generator
+            )
             scores = scores + noise
 
-        # Pick Top-K most "physical" regions to serve as anchors
-        # indices: [B, Num_Queries]
+        # Pick Top-K most "physical" regions
         _, top_indices = ops.top_k(scores, k=self.num_queries)
         
-        # Gather the features from these positions
-        # [B, Num_Queries, Embed_Dim]
-        # Note: We use take_along_axis for batch-wise gathering
+        # Gather the features
         top_indices = ops.expand_dims(top_indices, -1) # [B, K, 1]
         adaptive_queries = ops.take_along_axis(inputs, top_indices, axis=1)
         
         # --- Step 2: Vector Gating ---
-        # The gate allows the model to suppress anchors that might be "dust" or noise
-        # even if they had high intensity.
-        # Gate shape: [B, Num_Queries, Embed_Dim]
         gate_values = self.vector_gate(adaptive_queries)
         
-        # Apply Gate: Fused Queries
+        # Apply Gate
         refined_queries = adaptive_queries * gate_values
         
         return refined_queries
@@ -224,4 +223,3 @@ class ContentAdaptiveQueries(layers.Layer):
         config = super().get_config()
         config.update({"num_queries": self.num_queries, "embed_dim": self.embed_dim})
         return config
-
