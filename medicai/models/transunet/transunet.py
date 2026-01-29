@@ -14,7 +14,7 @@ from medicai.utils import (
     validate_activation,
 )
 
-from .transunet_layers import LearnableQueries, MaskedCrossAttention
+from .transunet_layers import LearnableQueries, MaskedCrossAttention, ContentAdaptiveQueries
 
 
 @keras.saving.register_keras_serializable(package="transunet")
@@ -279,8 +279,8 @@ class TransUNet(keras.Model, DescribeMixin):
         # Step 1: Initialize Learnable Queries.
         # These queries act as "segmentation concepts" and will be refined over
         # the course of the decoder.
-        current_queries = LearnableQueries(num_queries, embed_dim)(
-            encoder_output
+        current_queries = ContentAdaptiveQueries(num_queries, embed_dim)(
+            encoder_output, training=True # Ensure noise is applied during training
         )  # Initial queries
 
         # Step 2: Project CNN features for decoder skip connections
@@ -487,3 +487,4 @@ class TransUNet(keras.Model, DescribeMixin):
         )([mask_spatial, class_probs])
 
         return final_output
+
