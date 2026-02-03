@@ -28,6 +28,41 @@ model = TransUNet(
 )
 ```
 
+### Topology-Guided Skip Connections (Optional)
+
+For tubular or thin-structure segmentation tasks (e.g., Vesuvius ink traces),
+you can enable topology-guided skip gating. This uses differentiable soft
+skeletonization to focus skip connections on connected, centerline-like
+structures.
+
+```python
+model = TransUNet(
+    encoder_name="resnet18",
+    input_shape=(96, 96, 96, 1),
+    num_classes=3,
+    classifier_activation=None,
+    use_topology_guidance=True,
+    topology_skeleton_iters=15,
+)
+```
+
+### Affinity Feature Strengthening (Optional)
+
+For topology-sensitive tasks, you can strengthen local affinities in the
+decoder with a depthwise-separable gating block that reweights consistent
+neighborhoods.
+
+```python
+model = TransUNet(
+    encoder_name="resnet18",
+    input_shape=(96, 96, 96, 1),
+    num_classes=3,
+    classifier_activation=None,
+    use_affinity_strengthening=True,
+    affinity_kernel_size=3,
+)
+```
+
 **Encoder Depth**
 
 We can use `encoder_depth` to specifying how many stages of the encoder backbone to use. This will also reduce the model parameter for faster prototype.

@@ -457,6 +457,10 @@ model = TransUNet(
         encoder_name="seresnext50",
         classifier_activation="softmax",
         num_classes=3,
+        use_topology_guidance=True,
+        topology_skeleton_iters=15,
+        use_affinity_strengthening=True,
+        affinity_kernel_size=3,
     )
 
 model.load_weights("/kaggle/input/160x160x170-250epochs/pytorch/default/4/model.weights.h5")
