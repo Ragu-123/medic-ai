@@ -14,7 +14,7 @@ from medicai.utils import (
     validate_activation,
 )
 
-from .transunet_layers import LearnableQueries, MaskedCrossAttention
+from .transunet_layers import LearnableQueries, MaskedCrossAttention, TopologyGatedSkip
 
 
 @keras.saving.register_keras_serializable(package="transunet")
@@ -53,6 +53,8 @@ class TransUNet(keras.Model, DescribeMixin):
         dropout_rate=0.1,
         decoder_activation="leaky_relu",
         decoder_filters=(256, 128, 64, 32, 16),
+        use_topology_guidance=False,
+        topology_skeleton_iters=10,
         name=None,
         **kwargs,
     ):
@@ -100,6 +102,10 @@ class TransUNet(keras.Model, DescribeMixin):
             decoder_filters: The number of filters for the convolutional layers in the
                 decoder upsampling path. The number of filters should correspond to
                 the `encoder_depth`. Default: [256, 128, 64, 32, 16]
+            use_topology_guidance (bool): Whether to enable topology-guided gating
+                for skip connections using soft skeletonization. Default: False.
+            topology_skeleton_iters (int): Number of iterations for soft
+                skeletonization when topology guidance is enabled. Default: 10.
             name (str, optional): The name of the model. Defaults to `TransUNetND`.
         """
         encoder, input_shape = resolve_encoder(
@@ -201,6 +207,8 @@ class TransUNet(keras.Model, DescribeMixin):
             spatial_dims=spatial_dims,
             decoder_filters=decoder_filters,
             decoder_activation=decoder_activation,
+            use_topology_guidance=use_topology_guidance,
+            topology_skeleton_iters=topology_skeleton_iters,
         )
         outputs = get_conv_layer(
             spatial_dims=spatial_dims,
@@ -229,6 +237,8 @@ class TransUNet(keras.Model, DescribeMixin):
         self.dropout_rate = dropout_rate
         self.decoder_activation = decoder_activation
         self.decoder_filters = decoder_filters
+        self.use_topology_guidance = use_topology_guidance
+        self.topology_skeleton_iters = topology_skeleton_iters
 
     def get_config(self):
         config = {
@@ -245,6 +255,8 @@ class TransUNet(keras.Model, DescribeMixin):
             "dropout_rate": self.dropout_rate,
             "decoder_activation": self.decoder_activation,
             "decoder_filters": self.decoder_filters,
+            "use_topology_guidance": self.use_topology_guidance,
+            "topology_skeleton_iters": self.topology_skeleton_iters,
         }
         if self.encoder is not None:
             config.update({"encoder": keras.saving.serialize_keras_object(self.encoder)})
@@ -270,6 +282,8 @@ class TransUNet(keras.Model, DescribeMixin):
         spatial_dims,
         decoder_filters,
         decoder_activation,
+        use_topology_guidance,
+        topology_skeleton_iters,
     ):
         """
         Builds the hybrid decoder, which consists of a transformer-based
@@ -400,7 +414,17 @@ class TransUNet(keras.Model, DescribeMixin):
                 interpolation="bilinear" if spatial_dims == 2 else "trilinear",
                 name=f"upsample_to_p{pyramid_level}",
             )(x)
-            x = layers.Concatenate(axis=-1, name=f"concat_with_p{pyramid_level}")([x, skip])
+            skip_features = skip
+            if use_topology_guidance:
+                skip_features = TopologyGatedSkip(
+                    spatial_dims=spatial_dims,
+                    use_skeleton=True,
+                    skeleton_iters=topology_skeleton_iters,
+                    name=f"topo_gate_p{pyramid_level}",
+                )([x, skip])
+            x = layers.Concatenate(axis=-1, name=f"concat_with_p{pyramid_level}")(
+                [x, skip_features]
+            )
             x = get_conv_layer(
                 spatial_dims=spatial_dims,
                 layer_type="conv",

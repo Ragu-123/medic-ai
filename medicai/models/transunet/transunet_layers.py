@@ -2,6 +2,7 @@ import keras
 from keras import layers, ops
 
 from medicai.layers import TransUNetMLP
+from medicai.utils import soft_skeletonize
 
 
 class MaskedCrossAttention(layers.Layer):
@@ -161,4 +162,67 @@ class LearnableQueries(layers.Layer):
     def get_config(self):
         config = super().get_config()
         config.update({"num_queries": self.num_queries, "embed_dim": self.embed_dim})
+        return config
+
+
+class TopologyGatedSkip(layers.Layer):
+    """Topology-guided gating for skip features using soft skeletonization.
+
+    This layer predicts a gating mask from decoder features and optionally
+    sharpens it with differentiable soft skeletonization. The resulting mask
+    reweights skip connections to emphasize thin, connected structures.
+
+    Inputs:
+        - decoder_features: Tensor with shape (B, *spatial, C).
+        - skip_features: Tensor with shape (B, *spatial, C_skip).
+    Outputs:
+        - gated skip features with the same shape as skip_features.
+    """
+
+    def __init__(
+        self,
+        spatial_dims,
+        use_skeleton=True,
+        skeleton_iters=10,
+        gate_activation="sigmoid",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        if spatial_dims not in (2, 3):
+            raise ValueError(f"TopologyGatedSkip supports 2D or 3D, got {spatial_dims}D.")
+        self.spatial_dims = spatial_dims
+        self.use_skeleton = use_skeleton
+        self.skeleton_iters = skeleton_iters
+        self.gate_activation = gate_activation
+
+    def build(self, input_shape):
+        if self.spatial_dims == 2:
+            self.gate_conv = layers.Conv2D(1, 1, padding="same", name="topo_gate_conv")
+        else:
+            self.gate_conv = layers.Conv3D(1, 1, padding="same", name="topo_gate_conv")
+        self.gate_activation_layer = layers.Activation(self.gate_activation, name="topo_gate_act")
+
+    def call(self, inputs):
+        decoder_features, skip_features = inputs
+        gate = self.gate_conv(decoder_features)
+        gate = self.gate_activation_layer(gate)
+        if self.use_skeleton:
+            skeleton = soft_skeletonize(gate, self.skeleton_iters)
+            gate = 0.5 * (gate + skeleton)
+        gated_skip = skip_features * gate
+        return gated_skip
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[1]
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "spatial_dims": self.spatial_dims,
+                "use_skeleton": self.use_skeleton,
+                "skeleton_iters": self.skeleton_iters,
+                "gate_activation": self.gate_activation,
+            }
+        )
         return config
