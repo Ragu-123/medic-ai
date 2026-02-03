@@ -61,7 +61,7 @@ from medicai.models import (
     UNet, SegFormer, TransUNet, SwinUNETR, UPerNet
 )
 from medicai.losses import (
-    SparseDiceCELoss, SparseTverskyLoss
+    SparseCenterlineDiceLoss, SparseDiceCELoss, SparseTverskyLoss
 )
 from medicai.metrics import SparseDiceMetric
 from medicai.callbacks import SlidingWindowInferenceCallback
@@ -478,7 +478,7 @@ model.instance_describe()
 # %% [code] {"execution":{"execution_failed":"2025-12-24T15:42:39.284Z"}}
 import keras
 from keras import ops
-from medicai.losses import SkeletonRecallLoss, SparseDiceCELoss, SparseSurfaceDiceLoss
+from medicai.losses import SparseCenterlineDiceLoss, SparseDiceCELoss
 
 # --- Monitor for Skeleton Loss ---
 class SkeletonLossMonitor(keras.metrics.Metric):
@@ -540,36 +540,31 @@ class BaseLossMonitor(keras.metrics.Metric):
         self.total.assign(0.0)
         self.count.assign(0.0)
 
-class SkeletonSurfaceCompositeLoss(keras.losses.Loss):
+class SkeletonRecallPlusDiceLoss(keras.losses.Loss):
     def __init__(
         self,
         num_classes,
         w_srec=0.5,
-        w_surface=0.4,
-        w_fp=0.3,
-        name="skel_surface_loss",
+        w_cldice=0.1,
+        w_fp=0.3,          # <-- NEW
+        name="skel_recall_fp_loss",
     ):
         super().__init__(name=name)
         self.num_classes = num_classes
         self.w_srec = w_srec
-        self.w_surface = w_surface
-        self.w_fp = w_fp
+        self.w_cldice = w_cldice
+        self.w_fp = w_fp  # <-- NEW
 
         self.base_loss_fn = SparseDiceCELoss(
             from_logits=False,
             num_classes=num_classes,
             ignore_class_ids=2,
         )
-        self.surface_loss_fn = SparseSurfaceDiceLoss(
+        self.cldice_loss_fn = SparseCenterlineDiceLoss(
             from_logits=False,
             num_classes=num_classes,
+            target_class_ids=1,
             ignore_class_ids=2,
-        )
-        self.skeleton_loss_fn = SkeletonRecallLoss(
-            num_classes=num_classes,
-            foreground_class_id=1,
-            ignore_class_ids=[2],
-            from_logits=False,
         )
 
     def call(self, y_true, y_pred):
@@ -577,6 +572,8 @@ class SkeletonSurfaceCompositeLoss(keras.losses.Loss):
         # GT unpacking
         # --------------------
         y_true_mask = y_true[..., 0]   # 0/1/2 (2 = ignore)
+        y_true_skel = y_true[..., 1]
+
         pred_ink_prob = y_pred[..., 1]
 
         # Valid (non-ignore) mask
@@ -591,20 +588,31 @@ class SkeletonSurfaceCompositeLoss(keras.losses.Loss):
         )
 
         # --------------------
-        # 2. Skeleton Recall Loss (Topology)
+        # 2. Skeleton Recall Loss
         # --------------------
-        skel_loss = self.skeleton_loss_fn(y_true, y_pred)
+        intersection = keras.ops.sum(
+            pred_ink_prob * y_true_skel * valid_mask,
+            axis=(1, 2, 3),
+        )
+        skeleton_sum = keras.ops.sum(
+            y_true_skel * valid_mask,
+            axis=(1, 2, 3),
+        )
+
+        has_skeleton = keras.ops.cast(skeleton_sum > 0, "float32")
+        recall = (intersection + 1e-6) / (skeleton_sum + 1e-6)
+        skel_loss = keras.ops.mean((1.0 - recall) * has_skeleton)
 
         # --------------------
-        # 3. Surface Dice Loss (Boundary)
+        # 3. clDice (Centerline Dice) Loss
         # --------------------
-        surface_loss = self.surface_loss_fn(
+        cldice_loss = self.cldice_loss_fn(
             y_true_mask[..., None],
             y_pred,
         )
 
         # --------------------
-        # 4. FP Volume Loss
+        # 3. FP Volume Loss (NEW)
         # --------------------
         gt_fg = keras.ops.cast(y_true_mask == 1, "float32")
         gt_bg = keras.ops.cast(y_true_mask == 0, "float32")
@@ -623,7 +631,7 @@ class SkeletonSurfaceCompositeLoss(keras.losses.Loss):
         return (
             base_loss
             + self.w_srec * skel_loss
-            + self.w_surface * surface_loss
+            + self.w_cldice * cldice_loss
             + self.w_fp * fp_loss
         )
 
