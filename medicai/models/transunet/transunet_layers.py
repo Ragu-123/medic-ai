@@ -2,7 +2,7 @@ import keras
 from keras import layers, ops
 
 from medicai.layers import TransUNetMLP
-from medicai.utils import soft_skeletonize
+from medicai.utils import soft_dilate, soft_erode, soft_skeletonize
 
 
 class MaskedCrossAttention(layers.Layer):
@@ -185,6 +185,8 @@ class TopologyGatedSkip(layers.Layer):
         use_skeleton=True,
         skeleton_iters=10,
         gate_activation="sigmoid",
+        use_boundary=False,
+        boundary_weight=0.25,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -194,6 +196,8 @@ class TopologyGatedSkip(layers.Layer):
         self.use_skeleton = use_skeleton
         self.skeleton_iters = skeleton_iters
         self.gate_activation = gate_activation
+        self.use_boundary = use_boundary
+        self.boundary_weight = boundary_weight
 
     def build(self, input_shape):
         if self.spatial_dims == 2:
@@ -209,6 +213,10 @@ class TopologyGatedSkip(layers.Layer):
         if self.use_skeleton:
             skeleton = soft_skeletonize(gate, self.skeleton_iters)
             gate = 0.5 * (gate + skeleton)
+        if self.use_boundary:
+            boundary = ops.relu(soft_dilate(gate) - soft_erode(gate))
+            gate = (1.0 - self.boundary_weight) * gate + self.boundary_weight * boundary
+            gate = ops.clip(gate, 0.0, 1.0)
         gated_skip = skip_features * gate
         return gated_skip
 
@@ -223,6 +231,8 @@ class TopologyGatedSkip(layers.Layer):
                 "use_skeleton": self.use_skeleton,
                 "skeleton_iters": self.skeleton_iters,
                 "gate_activation": self.gate_activation,
+                "use_boundary": self.use_boundary,
+                "boundary_weight": self.boundary_weight,
             }
         )
         return config

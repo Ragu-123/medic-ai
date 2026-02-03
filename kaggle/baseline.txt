@@ -459,6 +459,8 @@ model = TransUNet(
         num_classes=3,
         use_topology_guidance=True,
         topology_skeleton_iters=15,
+        use_surface_gating=True,
+        surface_gate_weight=0.25,
         use_affinity_strengthening=True,
         affinity_kernel_size=3,
     )
@@ -659,7 +661,7 @@ optim = keras.optimizers.AdamW(
 #     num_classes=num_classes,
 #     ignore_class_ids=2,
 # )
-loss_fn = SkeletonRecallPlusDiceLoss(
+loss_fn = SkeletonSurfaceCompositeLoss(
     num_classes=num_classes,
     
 )

@@ -2,6 +2,10 @@ from medicai.losses.base import BaseDiceLoss  # noqa: F401
 from medicai.losses.cldice import BinaryCenterlineDiceLoss  # noqa: F401
 from medicai.losses.cldice import CategoricalCenterlineDiceLoss  # noqa: F401
 from medicai.losses.cldice import SparseCenterlineDiceLoss  # noqa: F401
+from medicai.losses.skeleton_recall import SkeletonRecallLoss  # noqa: F401
+from medicai.losses.surface_dice import BinarySurfaceDiceLoss  # noqa: F401
+from medicai.losses.surface_dice import CategoricalSurfaceDiceLoss  # noqa: F401
+from medicai.losses.surface_dice import SparseSurfaceDiceLoss  # noqa: F401
 from medicai.losses.dice import BinaryDiceLoss  # noqa: F401
 from medicai.losses.dice import CategoricalDiceLoss  # noqa: F401
 from medicai.losses.dice import SparseDiceLoss  # noqa: F401
