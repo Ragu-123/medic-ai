@@ -61,7 +61,7 @@ from medicai.models import (
     UNet, SegFormer, TransUNet, SwinUNETR, UPerNet
 )
 from medicai.losses import (
-    SparseDiceCELoss, SparseTverskyLoss
+    SparseCenterlineDiceLoss, SparseDiceCELoss, SparseTverskyLoss
 )
 from medicai.metrics import SparseDiceMetric
 from medicai.callbacks import SlidingWindowInferenceCallback
@@ -476,7 +476,7 @@ model.instance_describe()
 # %% [code] {"execution":{"execution_failed":"2025-12-24T15:42:39.284Z"}}
 import keras
 from keras import ops
-from medicai.losses import SparseDiceCELoss
+from medicai.losses import SparseCenterlineDiceLoss, SparseDiceCELoss
 
 # --- Monitor for Skeleton Loss ---
 class SkeletonLossMonitor(keras.metrics.Metric):
@@ -543,17 +543,25 @@ class SkeletonRecallPlusDiceLoss(keras.losses.Loss):
         self,
         num_classes,
         w_srec=0.5,
+        w_cldice=0.1,
         w_fp=0.3,          # <-- NEW
         name="skel_recall_fp_loss",
     ):
         super().__init__(name=name)
         self.num_classes = num_classes
         self.w_srec = w_srec
+        self.w_cldice = w_cldice
         self.w_fp = w_fp  # <-- NEW
 
         self.base_loss_fn = SparseDiceCELoss(
             from_logits=False,
             num_classes=num_classes,
+            ignore_class_ids=2,
+        )
+        self.cldice_loss_fn = SparseCenterlineDiceLoss(
+            from_logits=False,
+            num_classes=num_classes,
+            target_class_ids=1,
             ignore_class_ids=2,
         )
 
@@ -594,6 +602,14 @@ class SkeletonRecallPlusDiceLoss(keras.losses.Loss):
         skel_loss = keras.ops.mean((1.0 - recall) * has_skeleton)
 
         # --------------------
+        # 3. clDice (Centerline Dice) Loss
+        # --------------------
+        cldice_loss = self.cldice_loss_fn(
+            y_true_mask[..., None],
+            y_pred,
+        )
+
+        # --------------------
         # 3. FP Volume Loss (NEW)
         # --------------------
         gt_fg = keras.ops.cast(y_true_mask == 1, "float32")
@@ -613,6 +629,7 @@ class SkeletonRecallPlusDiceLoss(keras.losses.Loss):
         return (
             base_loss
             + self.w_srec * skel_loss
+            + self.w_cldice * cldice_loss
             + self.w_fp * fp_loss
         )
 
