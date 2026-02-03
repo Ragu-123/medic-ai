@@ -43,8 +43,14 @@ model = TransUNet(
     classifier_activation=None,
     use_topology_guidance=True,
     topology_skeleton_iters=15,
+    use_surface_gating=True,
+    surface_gate_weight=0.25,
 )
 ```
+
+You can also enable boundary-aware surface gating to emphasize morphological
+edges in the skip connections, which is useful when optimizing for surface
+Dice metrics.
 
 ### Affinity Feature Strengthening (Optional)
 

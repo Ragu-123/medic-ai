@@ -60,6 +60,8 @@ class TransUNet(keras.Model, DescribeMixin):
         decoder_filters=(256, 128, 64, 32, 16),
         use_topology_guidance=False,
         topology_skeleton_iters=10,
+        use_surface_gating=False,
+        surface_gate_weight=0.25,
         use_affinity_strengthening=False,
         affinity_kernel_size=3,
         name=None,
@@ -113,6 +115,10 @@ class TransUNet(keras.Model, DescribeMixin):
                 for skip connections using soft skeletonization. Default: False.
             topology_skeleton_iters (int): Number of iterations for soft
                 skeletonization when topology guidance is enabled. Default: 10.
+            use_surface_gating (bool): Whether to enable boundary-aware gating for
+                skip connections using soft morphological edges. Default: False.
+            surface_gate_weight (float): Weight of the boundary-aware gate when
+                surface gating is enabled. Default: 0.25.
             use_affinity_strengthening (bool): Whether to enable affinity feature
                 strengthening blocks in the decoder. Default: False.
             affinity_kernel_size (int): Kernel size for affinity strengthening
@@ -220,6 +226,8 @@ class TransUNet(keras.Model, DescribeMixin):
             decoder_activation=decoder_activation,
             use_topology_guidance=use_topology_guidance,
             topology_skeleton_iters=topology_skeleton_iters,
+            use_surface_gating=use_surface_gating,
+            surface_gate_weight=surface_gate_weight,
             use_affinity_strengthening=use_affinity_strengthening,
             affinity_kernel_size=affinity_kernel_size,
         )
@@ -252,6 +260,8 @@ class TransUNet(keras.Model, DescribeMixin):
         self.decoder_filters = decoder_filters
         self.use_topology_guidance = use_topology_guidance
         self.topology_skeleton_iters = topology_skeleton_iters
+        self.use_surface_gating = use_surface_gating
+        self.surface_gate_weight = surface_gate_weight
         self.use_affinity_strengthening = use_affinity_strengthening
         self.affinity_kernel_size = affinity_kernel_size
 
@@ -272,6 +282,8 @@ class TransUNet(keras.Model, DescribeMixin):
             "decoder_filters": self.decoder_filters,
             "use_topology_guidance": self.use_topology_guidance,
             "topology_skeleton_iters": self.topology_skeleton_iters,
+            "use_surface_gating": self.use_surface_gating,
+            "surface_gate_weight": self.surface_gate_weight,
             "use_affinity_strengthening": self.use_affinity_strengthening,
             "affinity_kernel_size": self.affinity_kernel_size,
         }
@@ -301,6 +313,8 @@ class TransUNet(keras.Model, DescribeMixin):
         decoder_activation,
         use_topology_guidance,
         topology_skeleton_iters,
+        use_surface_gating,
+        surface_gate_weight,
         use_affinity_strengthening,
         affinity_kernel_size,
     ):
@@ -440,11 +454,13 @@ class TransUNet(keras.Model, DescribeMixin):
                 name=f"upsample_to_p{pyramid_level}",
             )(x)
             skip_features = skip
-            if use_topology_guidance:
+            if use_topology_guidance or use_surface_gating:
                 skip_features = TopologyGatedSkip(
                     spatial_dims=spatial_dims,
-                    use_skeleton=True,
+                    use_skeleton=use_topology_guidance,
                     skeleton_iters=topology_skeleton_iters,
+                    use_boundary=use_surface_gating,
+                    boundary_weight=surface_gate_weight,
                     name=f"topo_gate_p{pyramid_level}",
                 )([x, skip])
             x = layers.Concatenate(axis=-1, name=f"concat_with_p{pyramid_level}")(
