@@ -101,8 +101,10 @@ num_classes=3
 !pip install scikit-image
 
 # %% [code] {"execution":{"iopub.status.busy":"2025-12-24T15:41:07.99125Z","iopub.execute_input":"2025-12-24T15:41:07.991527Z","iopub.status.idle":"2025-12-24T15:41:08.178303Z","shell.execute_reply.started":"2025-12-24T15:41:07.991503Z","shell.execute_reply":"2025-12-24T15:41:08.17773Z"}}
-from skimage.morphology import skeletonize
-from scipy.ndimage import binary_dilation
+from skimage.morphology import skeletonize_3d
+from skimage.segmentation import slic
+from scipy.ndimage import binary_dilation, convolve
+from medicai.losses import supervoxel_connectivity_penalty
 
 def generate_tubed_skeleton_numpy(label_vol):
     # label_vol shape: (D, H, W, 1)
@@ -110,7 +112,7 @@ def generate_tubed_skeleton_numpy(label_vol):
     mask = (label_vol[..., 0] == 1)
     
     # 1. Skeletonize
-    skel = skeletonize(mask)
+    skel = skeletonize_3d(mask)
     
     # 2. Tubular Dilation (Tubed Skeleton)
     # Iterations=1 is usually sufficient for "thin" tubes; increase for thicker targets
@@ -119,23 +121,65 @@ def generate_tubed_skeleton_numpy(label_vol):
     # Return as float32 for loss calculation, keeping shape (D, H, W, 1)
     return tubed_skel.astype(np.float32)[..., None]
 
-def add_skeleton_target(image, label):
+
+def generate_critical_supervoxels_numpy(
+    label_vol,
+    n_segments=400,
+    compactness=0.1,
+):
+    mask = (label_vol[..., 0] == 1)
+    if mask.sum() == 0:
+        return np.zeros_like(mask, dtype=np.float32)[..., None]
+
+    segments = slic(
+        mask.astype(np.float32),
+        n_segments=n_segments,
+        compactness=compactness,
+        start_label=1,
+        channel_axis=None,
+    )
+
+    skel = skeletonize_3d(mask)
+    if skel.sum() == 0:
+        return np.zeros_like(mask, dtype=np.float32)[..., None]
+
+    kernel = np.ones((3, 3, 3), dtype=np.uint8)
+    kernel[1, 1, 1] = 0
+    neighbor_count = convolve(skel.astype(np.uint8), kernel, mode="constant", cval=0)
+    critical_nodes = skel & (neighbor_count != 2) & (neighbor_count > 0)
+
+    critical_ids = np.unique(segments[critical_nodes])
+    if critical_ids.size == 0:
+        return np.zeros_like(mask, dtype=np.float32)[..., None]
+
+    critical_mask = np.isin(segments, critical_ids) & mask
+    return critical_mask.astype(np.float32)[..., None]
+
+def add_topology_targets(image, label):
     # Wrapper to run numpy code inside tf.data graph
     # Inputs: image (D,H,W,1), label (D,H,W,1)
-    
     tubed_skel = tf.numpy_function(
         func=generate_tubed_skeleton_numpy,
         inp=[label],
-        Tout=tf.float32
+        Tout=tf.float32,
     )
-    
+    critical_supervoxels = tf.numpy_function(
+        func=generate_critical_supervoxels_numpy,
+        inp=[label],
+        Tout=tf.float32,
+    )
+
     # Explicitly set shape because numpy_function loses it
     tubed_skel.set_shape(label.shape)
-    
-    # Pack both targets into y_true: Channel 0 = Mask, Channel 1 = Skeleton
-    # New label shape: (D, H, W, 2)
-    combined_label = tf.concat([tf.cast(label, tf.float32), tubed_skel], axis=-1)
-    
+    critical_supervoxels.set_shape(label.shape)
+
+    # Pack both targets into y_true: Channel 0 = Mask, 1 = Skeleton, 2 = Critical SVs
+    # New label shape: (D, H, W, 3)
+    combined_label = tf.concat(
+        [tf.cast(label, tf.float32), tubed_skel, critical_supervoxels],
+        axis=-1,
+    )
+
     return image, combined_label
 
 # %% [code] {"_kg_hide-input":true,"execution":{"iopub.status.busy":"2025-12-24T15:41:08.17911Z","iopub.execute_input":"2025-12-24T15:41:08.18022Z","iopub.status.idle":"2025-12-24T15:41:08.184778Z","shell.execute_reply.started":"2025-12-24T15:41:08.180201Z","shell.execute_reply":"2025-12-24T15:41:08.184172Z"}}
@@ -329,10 +373,10 @@ def tfrecord_loader(tfrecord_pattern, batch_size=1, shuffle=True):
             train_transformation,
             num_parallel_calls=tf.data.AUTOTUNE
         )
-        # ONLY add skeleton for training
+        # ONLY add topology targets for training (skeleton + critical supervoxels)
         dataset = dataset.map(
-            add_skeleton_target, 
-            num_parallel_calls=tf.data.AUTOTUNE
+            add_topology_targets,
+            num_parallel_calls=tf.data.AUTOTUNE,
         )
     else:
         # VALIDATION PATH
@@ -487,7 +531,7 @@ class SkeletonLossMonitor(keras.metrics.Metric):
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         # Only calc if we have the skeleton channel (Training data)
-        if y_true.shape[-1] == 2:
+        if y_true.shape[-1] >= 2:
             y_true_skel = y_true[..., 1]
             pred_prob = y_pred[..., 1]
             
@@ -521,8 +565,8 @@ class BaseLossMonitor(keras.metrics.Metric):
         self.count = self.add_variable(shape=(), initializer="zeros", name="count")
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        # Handle shape: if 2 channels, take only the first (mask)
-        if len(y_true.shape) == 5 and y_true.shape[-1] == 2:
+        # Handle shape: if extra channels, take only the first (mask)
+        if len(y_true.shape) == 5 and y_true.shape[-1] >= 2:
             y_true_mask = y_true[..., 0:1]
         else:
             y_true_mask = y_true 
@@ -543,13 +587,15 @@ class SkeletonRecallPlusDiceLoss(keras.losses.Loss):
         self,
         num_classes,
         w_srec=0.5,
-        w_fp=0.3,          # <-- NEW
+        w_fp=0.3,
+        w_sv=0.1,
         name="skel_recall_fp_loss",
     ):
         super().__init__(name=name)
         self.num_classes = num_classes
         self.w_srec = w_srec
-        self.w_fp = w_fp  # <-- NEW
+        self.w_fp = w_fp
+        self.w_sv = w_sv
 
         self.base_loss_fn = SparseDiceCELoss(
             from_logits=False,
@@ -608,12 +654,27 @@ class SkeletonRecallPlusDiceLoss(keras.losses.Loss):
         )
 
         # --------------------
+        # 4. Supervoxel Connectivity Penalty (NEW)
+        # --------------------
+        if y_true.shape[-1] >= 3:
+            sv_loss = supervoxel_connectivity_penalty(
+                y_true,
+                y_pred,
+                critical_channel=2,
+                foreground_class_id=1,
+                ignore_label=2,
+            )
+        else:
+            sv_loss = 0.0
+
+        # --------------------
         # Final Loss
         # --------------------
         return (
             base_loss
             + self.w_srec * skel_loss
             + self.w_fp * fp_loss
+            + self.w_sv * sv_loss
         )
 
 # %% [code]
@@ -707,7 +768,7 @@ class MaskOnlySparseDiceMetric(SparseDiceMetric):
         # y_true comes from train_loader with shape: (B, D, H, W, 2) -> [Mask, Skeleton]
         # We only need Channel 0 (the Mask) for the Dice calculation
         # Check if we have the extra channel dimension
-        if len(y_true.shape) == 5 and y_true.shape[-1] == 2:
+        if len(y_true.shape) == 5 and y_true.shape[-1] >= 2:
             y_true_mask = y_true[..., 0]
             # Restore channel dim to match expectations: (B, D, H, W, 1)
             y_true_mask = ops.expand_dims(y_true_mask, axis=-1)

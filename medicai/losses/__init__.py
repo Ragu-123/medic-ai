@@ -14,6 +14,10 @@ from medicai.losses.generalized_dice import SparseGeneralizedDiceLoss  # noqa: F
 from medicai.losses.iou import BinaryIoULoss  # noqa: F401
 from medicai.losses.iou import CategoricalIoULoss  # noqa: F401
 from medicai.losses.iou import SparseIoULoss  # noqa: F401
+from medicai.losses.supervoxel_connectivity import (  # noqa: F401
+    SupervoxelConnectivityLoss,
+    supervoxel_connectivity_penalty,
+)
 from medicai.losses.tversky import BinaryTverskyLoss  # noqa: F401
 from medicai.losses.tversky import CategoricalTverskyLoss  # noqa: F401
 from medicai.losses.tversky import SparseTverskyLoss  # noqa: F401
