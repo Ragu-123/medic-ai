@@ -1,0 +1,76 @@
+Vesuvius Challenge - Surface Detection
+Build a model to virtually unwrap ancient scrolls.
+
+
+Dataset Description
+Your challenge in this competition is to detect and segment layers of papyrus in 3D imagery. This will help researchers virtually unroll the ancient scrolls from Herculaneum and ultimately recover the original texts.
+
+This competition uses a hidden test set. When your submitted notebook is scored, the actual test data will be made available to your notebook. Expect to see roughly 120 volumes in the hidden test set.
+
+Files
+[train/test].csv Metadata for the imagery.
+
+id - A unique ID for the volume.
+scroll_id - A unique ID for the source scroll. The provided volumes only cover a relatively small fraction of each scroll.
+[train/test]_images/ 3D tif imagery. Each image is a sub-volume from a larger scan. Note that the sole test image available for download is simply a copy of one of the train images. This is for illustrative purposes only.
+
+train_labels/ Label masks encoded such that 0 = background, 1 = foreground, 2 = unlabeled. Most masks only cover a subset of the volume.
+
+Additional Data
+The Vesuvius Challenge team has made a great deal of additional data available on their site. Some of it may prove useful for unsupervised learning.
+
+Files
+1615 files
+
+Size
+27.49 GB
+
+Type
+tif, csv
+
+License
+Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)
+
+test.csv(27 B)
+
+2 of 2 columns
+
+
+id
+
+scroll_id
+1
+
+total values
+1
+
+total values
+1407735
+26002
+No more data to show
+Data Explorer
+27.49 GB
+
+test_images
+
+train_images
+
+train_labels
+
+test.csv
+
+train.csv
+
+Summary
+1615 files
+
+4 columns
+
+
+Download All
+kaggle competitions download -c vesuvius-challenge-surface-detection
+Download data
+
+Metadata
+License
+Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)

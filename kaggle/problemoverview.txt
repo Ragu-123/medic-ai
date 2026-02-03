@@ -1,0 +1,170 @@
+Vesuvius Challenge - Surface Detection
+Build a model to virtually unwrap ancient scrolls.
+
+
+Vesuvius Challenge - Surface Detection
+
+Submit Prediction
+Overview
+Some ancient scrolls are too fragile to open, but that doesn’t mean we can’t read them. Can your model help?
+
+Before we can recover what’s written between the lines, we first need to find the lines. You’ll work with CT scans from the Villa dei Papiri to train a model that follows the scroll’s surface, one of the trickiest and most essential parts of virtually unwrapping the text.
+
+Start
+
+a month ago
+Close
+2 months to go
+Merger & Entry
+Description
+The library at the Villa dei Papiri is one-of-a-kind: it’s the only classical antiquity known to survive. But when Mount Vesuvius erupted in AD 79, most of its scrolls were turned into carbonized bundles of ash. Nearly 2,000 years later, many are still sealed shut, too delicate to unroll and too complex to decode. In this competition, you’ll build a model to segment the scroll’s surface in CT scans, a critical step in revealing the texts hidden inside.
+
+Physical unrolling would destroy the scrolls, and today’s digital methods can handle only the easy parts, like clean, well-spaced layers. But the tightest, most tangled areas are often where the real discoveries hide. To recover those, we need better segmentation to handle noise and compression without distorting the scroll's shape.
+
+You’ll work with real 3D CT data from the previous Vesuvius Challenge, which uncovered passages from sealed scrolls, including an ancient book title revealed for the first time. Your model’s job is to trace the scroll’s surface as it winds through folds, gaps, and distortions so the next stage of virtual unwrapping can do its magic.
+
+Your efforts could help unlock works of philosophy, poetry, and history that haven’t been read in centuries. Texts that might have been lost forever—until now.
+
+Let’s bring them back, one layer at a time.
+
+To learn about the previous Vesuvius Challenge, please follow this link.
+
+Dataset Description
+The dataset includes 3D chunks of binary labeled CT scans of the closed and carbonized Herculaneum scrolls. Data was acquired at the ESRF synchrotron in Grenoble, on beamline BM18 and at the DLS synchrotron in Oxford, on beamline I12.
+
+The dimension of a sample chunk is not fixed, and can vary across the dataset.
+
+Image showing the software used to virtually unwrap the scrolls
+
+A papyrus sheet is composed of two layers, the recto and the verso, one with horizontal fibers and one with vertical fibers on top of each other.
+
+The ideal solution is detecting the recto surface – the surface of the papyrus sheet that faces the umbilicus (the center of the scroll). The recto surface lies on the layer composed of horizontal fibers. Since the scrolls survived a carbonized eruption, the sheets can be partially damaged and frayed. Detecting, within a reasonable approximation, just the position of a sheet, no matter whether the segmentation surface encompasses both the recto and the verso, is also fine for the purpose of virtually unwrapping the scrolls.
+
+Avoid topological mistakes: artificial mergers between different sheets and holes that split a single entity in several disconnected components.
+
+The output of the machine learning model can be directly used in the Vesuvius Challenge pipeline to digitally unwrap (and read) the Herculaneum scrolls. Curious? Have a look at the latest tutorial on their digital unwrapping pipeline: https://www.youtube.com/watch?v=yHbpVcGD06U
+
+Because the host team is laser-focused on unwrapping these scrolls, their research will continue throughout the Kaggle competition. Their annotation team will semi-manually unwrap additional portions of papyrus, and they expect to release both more labeled data AND ancient text as the competition progresses. Unlike the original training set, which underwent careful proofreading and refinement, these new labels will be less curated. Please use your judgment to decide how (and whether) each additional chunk should be incorporated into model training.
+
+Evaluation
+This competition uses a weighted average of three different segmentation metrics: Surface Dice, TopoScore, and VOI. See this notebook for a working copy of the metric and this dataset for the implementation details of each sub-metric. For general advice on how to optimize your submissions for the metric, see the Metric Summary section below. Note that this metric takes a relatively long time to run; you may need to wait several hours for scoring to complete.
+
+Submission File
+You must submit a zip containing one .tif volume mask per test image. Each mask must be named [image_id].tif, match the dimensions of the source image exactly, and use the same data type as the train mask.
+
+Timeline
+November 13, 2025 - Start Date.
+February 6, 2026 - Entry Deadline. You must accept the competition rules before this date in order to compete.
+February 6, 2026 - Team Merger Deadline. This is the last day participants may join or merge teams.
+February 13, 2026 - Final Submission Deadline.
+All deadlines are at 11:59 PM UTC on the corresponding day unless otherwise noted. The competition organizers reserve the right to update the contest timeline if they deem it necessary.
+
+Prizes
+1st place: $60,000
+2nd place: $40,000
+3rd place: $30,000
+4th place: $20,000
+5th place: $15,000
+6th place: $10,000
+7th place: $10,000
+8th place: $5,000
+9th place: $5,000
+10th place: $5,000
+Code Requirements
+
+
+Submissions to this competition must be made through Notebooks. In order for the "Submit" button to be active after a commit, the following conditions must be met:
+
+CPU Notebook <= 9 hours run-time
+GPU Notebook <= 9 hours run-time
+Internet access disabled
+Freely & publicly available external data is allowed, including pre-trained models
+Submission file must be named submission.zip
+Please see the Code Competition FAQ for more information on how to submit. And review the code debugging doc if you are encountering submission errors.
+
+Metric Summary
+How We Score: Topology‑Aware Metrics for 3D Surface Segmentation
+We reward surface proximity (SurfaceDice@τ), instance consistency (VOI split/merge), and shape correctness (TopoScore) so good unwrapping is not only accurate but topologically right.
+
+Why topology matters here
+To virtually unwrap the Herculaneum scrolls we must find the ink‑bearing papyrus surface—and keep it as a single, clean sheet as it winds through the volume. Beyond voxel‑wise accuracy, we must avoid mergers across adjacent wraps and splits within the same wrap, and we must preserve high‑level surface traits (no spurious holes/handles). Classic region‑overlap metrics (e.g., Dice) can look great even when these topology errors are severe. That’s why the leaderboard blends surface similarity, instance‑level consistency, and topological correctness.
+
+Leaderboard formula (higher is better)
+We linearly combine three bounded scores in [0,1]:
+Score = 0.30 × TopoScore + 0.35 × SurfaceDice@τ + 0.35 × VOI_score
+
+Leaderboard ranking uses the average score over all test volumes.
+
+• All terms are in [0, 1].
+• The tolerance τ for Surface Dice is in the same physical units as the case spacing, and it’s set to τ=2.0.
+• Weights are fixed for the competition unless announced otherwise.
+
+1) SurfaceDice@τ — Are the two surfaces within tolerance?
+A surface‑aware variant of Dice: it scores the fraction of surface points (both prediction and ground truth) that lie within a spatial tolerance τ of each other. This respects that both labels and predictions may be off by a voxel or two while still capturing the right geometry.
+
+Computation essentials: extract voxelized surfaces of prediction (P) and ground truth (G); compute nearest‑surface distances with case spacing; count matches when distance ≤ τ; average matches both ways (P↔G).
+Edge cases: both empty → 1.0; exactly one empty → 0.0.
+Defaults: τ = 2.0 (in spacing units) unless specified.
+2) VOI_score — Do instances split/merge correctly?
+Variation of Information (VOI) compares the connected‑component labelings of prediction and ground truth. It decomposes into VOI_split = H(GT | Pred) and VOI_merge = H(Pred | GT), which track over‑segmentation (splits) and under‑segmentation (merges), respectively. We convert the lower‑is‑better VOI_total = VOI_split + VOI_merge into a bounded score: VOI_score = 1 / (1 + 𝛂 VOI_total), with 𝛂 = 0.3.
+
+Computation essentials: run 3D connected components (default 26‑connectivity) on union foreground; compute VOI on these integer labelings; map to VOI_score as above.
+Interpretation: VOI responds strongly to component splits/merges and complements the shape‑level guarantees of TopoScore, described in the next section.
+3) TopoScore — Are the topological features preserved?
+Using Betti (number) matching from algebraic topology, we compare the topological features present in prediction vs. ground truth in each homology dimension k: k=0 (components), k=1 (tunnels/handles), k=2 (cavities). We compute a per‑dimension Topological‑F1 based on matched features, then take a weighted average over active dimensions.
+
+Default weights: w0=0.34, w1=0.33, w2=0.33; inactive dimensions (no features in both) are skipped with renormalization.
+Why this helps: detects bridges across neighboring wraps (extra k=1), within‑wrap breaks (extra k=0), and spurious cavities (extra k=2).
+What each metric “sees” (cheat sheet)
+SurfaceDice@τ focuses on boundary proximity; VOI captures instance split/merge behavior; TopoScore captures shape‑level topology.
+See the table below for a quick mapping of common error patterns to metric responses.
+
+Error pattern	SurfaceDice@τ	VOI_score (split/merge)	TopoScore (Betti)
+Slight boundary misplacement (≤ τ)	Tolerant (often unchanged)	Usually unaffected	Unaffected
+Artificial bridge between parallel layers	Local effect – May stay high	Merge ↓ (under-segmentation)	k=0 / k=1 (components and tunnels) – penalized ↓
+Split of the same wrap into pieces	Local effect – May stay high	Split ↓ (over-segmentation)	k=0 components – penalized ↓
+Spurious holes/handles in the sheet	Local effect – May stay high	Small or none	k=1/k=2 – penalized ↓
+Evaluation details & edge cases
+Binarization: foreground is non‑zero by default (or x > threshold if a threshold is specified).
+Ignore regions: voxels marked ignored (via GT label or explicit mask) are set to background in both prediction and GT before all computations.
+Connectivity (VOI only): default 26 in 3D.
+Spacing & tolerance: all distances use per‑case spacing (sz, sy, sx); τ is in the same physical units.
+Empty‑mask conventions: both empty → SurfaceDice=1, VOI_score=1, TopoScore=1; one empty → SurfaceDice=0; VOI_score near 0; TopoScore=0 on k=0.
+Practical tips for competitors
+Favor continuity within a wrap; avoid bridges across wraps (thin spurious connections are costly in VOI and TopoScore).
+Mind connectivity: thinning/dilation can alter counts; check results under 26‑connectivity.
+References
+Pitfalls of topology-aware image segmentation, Berger et al., IPMI 2025 (2025)
+Deep learning to achieve clinically applicable segmentation of head and neck anatomy for radiotherapy, Nikolov et al., J Med Internet Res. 2021 Jul 12;23(7):e26151 (2021)
+Efficient Betti Matching Enables Topology-Aware 3D Segmentation via Persistent Homology, Stucki et al., arXiv preprint (2024)
+clDice - a Novel Topology-Preserving Loss Function for Tubular Structure Segmentation, Shit et al., CVPR 2021 (2021)
+Efficient Connectivity-Preserving Instance Segmentation with Supervoxel-Based Loss Function, Grim et al., AAAI-25 (2025)
+Skeleton Recall Loss for Connectivity Conserving and Resource Efficient Segmentation of Thin Tubular Structures , Kirchhoff et al., ECCV 2024 (2024)
+Citation
+Sean Johnson, David Josey, Elian Rafael Dal Prà, Hendrik Schilling, Youssef Nader, Johannes Rudolph, Forrest McDonald, Paul Henderson, Giorgio Angelotti, Sohier Dane, and María Cruz. Vesuvius Challenge - Surface Detection. https://kaggle.com/competitions/vesuvius-challenge-surface-detection, 2025. Kaggle.
+
+
+Cite
+Competition Host
+Vesuvius Challenge
+
+Prizes & Awards
+$200,000
+
+Awards Points & Medals
+
+Participation
+4,683 Entrants
+
+394 Participants
+
+354 Teams
+
+3,412 Submissions
+
+Tags
+History
+Image Segmentation
+Segmentation
+Custom Metric
+Table of Contents
