@@ -46,6 +46,23 @@ model = TransUNet(
 )
 ```
 
+### Affinity Feature Strengthening (Optional)
+
+For topology-sensitive tasks, you can strengthen local affinities in the
+decoder with a depthwise-separable gating block that reweights consistent
+neighborhoods.
+
+```python
+model = TransUNet(
+    encoder_name="resnet18",
+    input_shape=(96, 96, 96, 1),
+    num_classes=3,
+    classifier_activation=None,
+    use_affinity_strengthening=True,
+    affinity_kernel_size=3,
+)
+```
+
 **Encoder Depth**
 
 We can use `encoder_depth` to specifying how many stages of the encoder backbone to use. This will also reduce the model parameter for faster prototype.

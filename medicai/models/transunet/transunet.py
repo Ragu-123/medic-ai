@@ -14,7 +14,12 @@ from medicai.utils import (
     validate_activation,
 )
 
-from .transunet_layers import LearnableQueries, MaskedCrossAttention, TopologyGatedSkip
+from .transunet_layers import (
+    AffinityFeatureStrengthening,
+    LearnableQueries,
+    MaskedCrossAttention,
+    TopologyGatedSkip,
+)
 
 
 @keras.saving.register_keras_serializable(package="transunet")
@@ -55,6 +60,8 @@ class TransUNet(keras.Model, DescribeMixin):
         decoder_filters=(256, 128, 64, 32, 16),
         use_topology_guidance=False,
         topology_skeleton_iters=10,
+        use_affinity_strengthening=False,
+        affinity_kernel_size=3,
         name=None,
         **kwargs,
     ):
@@ -106,6 +113,10 @@ class TransUNet(keras.Model, DescribeMixin):
                 for skip connections using soft skeletonization. Default: False.
             topology_skeleton_iters (int): Number of iterations for soft
                 skeletonization when topology guidance is enabled. Default: 10.
+            use_affinity_strengthening (bool): Whether to enable affinity feature
+                strengthening blocks in the decoder. Default: False.
+            affinity_kernel_size (int): Kernel size for affinity strengthening
+                depthwise convolutions. Default: 3.
             name (str, optional): The name of the model. Defaults to `TransUNetND`.
         """
         encoder, input_shape = resolve_encoder(
@@ -209,6 +220,8 @@ class TransUNet(keras.Model, DescribeMixin):
             decoder_activation=decoder_activation,
             use_topology_guidance=use_topology_guidance,
             topology_skeleton_iters=topology_skeleton_iters,
+            use_affinity_strengthening=use_affinity_strengthening,
+            affinity_kernel_size=affinity_kernel_size,
         )
         outputs = get_conv_layer(
             spatial_dims=spatial_dims,
@@ -239,6 +252,8 @@ class TransUNet(keras.Model, DescribeMixin):
         self.decoder_filters = decoder_filters
         self.use_topology_guidance = use_topology_guidance
         self.topology_skeleton_iters = topology_skeleton_iters
+        self.use_affinity_strengthening = use_affinity_strengthening
+        self.affinity_kernel_size = affinity_kernel_size
 
     def get_config(self):
         config = {
@@ -257,6 +272,8 @@ class TransUNet(keras.Model, DescribeMixin):
             "decoder_filters": self.decoder_filters,
             "use_topology_guidance": self.use_topology_guidance,
             "topology_skeleton_iters": self.topology_skeleton_iters,
+            "use_affinity_strengthening": self.use_affinity_strengthening,
+            "affinity_kernel_size": self.affinity_kernel_size,
         }
         if self.encoder is not None:
             config.update({"encoder": keras.saving.serialize_keras_object(self.encoder)})
@@ -284,6 +301,8 @@ class TransUNet(keras.Model, DescribeMixin):
         decoder_activation,
         use_topology_guidance,
         topology_skeleton_iters,
+        use_affinity_strengthening,
+        affinity_kernel_size,
     ):
         """
         Builds the hybrid decoder, which consists of a transformer-based
@@ -403,6 +422,12 @@ class TransUNet(keras.Model, DescribeMixin):
             padding="same",
             name="decoder_proj_0",
         )(final_output)
+        if use_affinity_strengthening:
+            x = AffinityFeatureStrengthening(
+                spatial_dims=spatial_dims,
+                kernel_size=affinity_kernel_size,
+                name="affinity_strengthen_p0",
+            )(x)
 
         # Iterate from deepest skip (last element) to shallowest (first)
         for i, (skip, filters) in enumerate(
@@ -436,6 +461,12 @@ class TransUNet(keras.Model, DescribeMixin):
                 name=f"decoder_conv_{pyramid_level}",
             )(x)
             x = get_act_layer(layer_type=decoder_activation, name=f"decoder_act_{pyramid_level}")(x)
+            if use_affinity_strengthening:
+                x = AffinityFeatureStrengthening(
+                    spatial_dims=spatial_dims,
+                    kernel_size=affinity_kernel_size,
+                    name=f"affinity_strengthen_p{pyramid_level}",
+                )(x)
 
         # Final upsample to restore full resolution
         x = ResizingND(

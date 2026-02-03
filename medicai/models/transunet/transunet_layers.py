@@ -226,3 +226,64 @@ class TopologyGatedSkip(layers.Layer):
             }
         )
         return config
+
+
+class AffinityFeatureStrengthening(layers.Layer):
+    """Strengthen local affinities with depthwise separable convolution.
+
+    Inspired by affinity feature strengthening, this block predicts a
+    channel-wise affinity gate and applies a residual reweighting to
+    emphasize consistent local neighborhoods.
+    """
+
+    def __init__(self, spatial_dims, kernel_size=3, gate_activation="sigmoid", **kwargs):
+        super().__init__(**kwargs)
+        if spatial_dims not in (2, 3):
+            raise ValueError(
+                f"AffinityFeatureStrengthening supports 2D or 3D, got {spatial_dims}D."
+            )
+        self.spatial_dims = spatial_dims
+        self.kernel_size = kernel_size
+        self.gate_activation = gate_activation
+
+    def build(self, input_shape):
+        channels = input_shape[-1]
+        if self.spatial_dims == 2:
+            self.depthwise = layers.DepthwiseConv2D(
+                self.kernel_size, padding="same", name="affinity_depthwise"
+            )
+            self.pointwise = layers.Conv2D(
+                channels, 1, padding="same", name="affinity_pointwise"
+            )
+        else:
+            self.depthwise = layers.Conv3D(
+                channels,
+                self.kernel_size,
+                padding="same",
+                groups=channels,
+                name="affinity_depthwise",
+            )
+            self.pointwise = layers.Conv3D(
+                channels, 1, padding="same", name="affinity_pointwise"
+            )
+        self.gate_activation_layer = layers.Activation(self.gate_activation, name="affinity_gate")
+
+    def call(self, inputs):
+        gate = self.depthwise(inputs)
+        gate = self.pointwise(gate)
+        gate = self.gate_activation_layer(gate)
+        return inputs + (inputs * gate)
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "spatial_dims": self.spatial_dims,
+                "kernel_size": self.kernel_size,
+                "gate_activation": self.gate_activation,
+            }
+        )
+        return config
